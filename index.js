@@ -29,8 +29,8 @@ async function run() {
     const db = client.db("contest");
     const contestCollection = db.collection("contest");
     const usersCollection = db.collection("users");
-
-    app.get("/contests", async (req, res) => {
+    const leaderboardCollection = db.collection("leaderboard");
+    app.get("/contest", async (req, res) => {
       const result = await contestCollection.find().toArray();
       res.send(result);
     });
@@ -40,6 +40,18 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/leaderboard", async (req, res) => {
+      try {
+        const leaderboardData = await leaderboardCollection
+          .find()
+          .sort({ rank: 1 })
+          .toArray();
+        res.json(leaderboardData);
+      } catch (err) {
+        console.error("Failed to fetch leaderboard:", err);
+        res.status(500).json({ error: "Failed to fetch leaderboard" });
+      }
+    });
     console.log("Successfully connected to MongoDB!");
   } finally {
     // await client.close();
