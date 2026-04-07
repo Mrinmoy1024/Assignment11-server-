@@ -52,6 +52,18 @@ async function run() {
         res.status(500).json({ error: "Failed to fetch leaderboard" });
       }
     });
+      app.get("/recent-winners", async (req, res) => {
+      try {
+        const result = await leaderboardCollection
+          .find()
+          .sort({ rank: 1 })
+          .limit(5)          
+          .toArray();        
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: "Failed to fetch recent winners" });
+      }
+    });
     console.log("Successfully connected to MongoDB!");
   } finally {
     // await client.close();
