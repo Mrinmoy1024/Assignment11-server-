@@ -23,7 +23,20 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
-
+const verifyJWT = async (req, res, next) => {
+  const token = req?.headers?.authorization?.split(" ")[1];
+  console.log(token);
+  if (!token) return res.status(401).send({ message: "Unauthorized Access!" });
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.tokenEmail = decoded.email;
+    console.log(decoded);
+    next();
+  } catch (err) {
+    console.log(err);
+    return res.status(401).send({ message: "Unauthorized Access!", err });
+  }
+};
 async function run() {
   try {
     const db = client.db("contest");
@@ -36,7 +49,7 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyJWT, async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     });
@@ -65,7 +78,7 @@ async function run() {
         res.status(500).json({ error: "Failed to fetch recent winners" });
       }
     });
-    app.post("/users", async (req, res) => {
+    app.post("/users", verifyJWT, async (req, res) => {
       const { name, email, photoURL, createdAt } = req.body;
 
       if (!name || !email) {
@@ -87,6 +100,7 @@ async function run() {
           name,
           email,
           photoURL: photoURL || "",
+          role: "general user",
           createdAt: createdAt ? new Date(createdAt) : new Date(),
         });
 
