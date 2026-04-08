@@ -261,6 +261,18 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
+    app.delete("/users/:id", verifyJWT, async (req, res) => {
+      try {
+        const { ObjectId } = require("mongodb");
+        const id = req.params.id;
+        const result = await usersCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
     console.log("MongoDB connected");
   } finally {
   }
