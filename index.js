@@ -3,14 +3,15 @@ const app = express();
 const port = 3000;
 const cors = require("cors");
 require("dotenv").config();
+const jwt = require("jsonwebtoken");
 
 app.use(
   cors({
     origin: ["http://localhost:5173"],
     credentials: true,
-    optionSuccessStatus: 200,
   }),
 );
+
 app.use(express.json());
 
 const { MongoClient, ServerApiVersion } = require("mongodb");
@@ -23,26 +24,33 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
-const verifyJWT = async (req, res, next) => {
-  const token = req?.headers?.authorization?.split(" ")[1];
-  console.log(token);
-  if (!token) return res.status(401).send({ message: "Unauthorized Access!" });
-  try {
-    const decoded = await admin.auth().verifyIdToken(token);
-    req.tokenEmail = decoded.email;
-    console.log(decoded);
-    next();
-  } catch (err) {
-    console.log(err);
-    return res.status(401).send({ message: "Unauthorized Access!", err });
+
+const verifyJWT = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).send({ message: "Unauthorized access" });
   }
+
+  const token = authHeader.split(" ")[1];
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(401).send({ message: "Invalid token" });
+    }
+
+    req.user = decoded;
+    next();
+  });
 };
+
 async function run() {
   try {
     const db = client.db("contest");
     const contestCollection = db.collection("contest");
     const usersCollection = db.collection("users");
     const leaderboardCollection = db.collection("leaderboard");
+    const submissionsCollection = db.collection("submissions");
 
     app.get("/contest", async (req, res) => {
       const result = await contestCollection.find().toArray();
@@ -55,31 +63,24 @@ async function run() {
     });
 
     app.get("/leaderboard", async (req, res) => {
-      try {
-        const leaderboardData = await leaderboardCollection
-          .find()
-          .sort({ rank: 1 })
-          .toArray();
-        res.json(leaderboardData);
-      } catch (err) {
-        console.error("Failed to fetch leaderboard:", err);
-        res.status(500).json({ error: "Failed to fetch leaderboard" });
-      }
+      const result = await leaderboardCollection
+        .find()
+        .sort({ rank: 1 })
+        .toArray();
+      res.send(result);
     });
+
     app.get("/recent-winners", async (req, res) => {
-      try {
-        const result = await leaderboardCollection
-          .find()
-          .sort({ rank: 1 })
-          .limit(6)
-          .toArray();
-        res.json(result);
-      } catch (err) {
-        res.status(500).json({ error: "Failed to fetch recent winners" });
-      }
+      const result = await leaderboardCollection
+        .find()
+        .sort({ rank: 1 })
+        .limit(6)
+        .toArray();
+      res.send(result);
     });
-    app.post("/users", verifyJWT, async (req, res) => {
-      const { name, email, photoURL, createdAt } = req.body;
+
+    app.post("/users", async (req, res) => {
+      const { name, email, photoURL } = req.body;
 
       if (!name || !email) {
         return res
@@ -91,9 +92,7 @@ async function run() {
         const existing = await usersCollection.findOne({ email });
 
         if (existing) {
-          return res
-            .status(409)
-            .json({ message: "An account with this email already exists." });
+          return res.status(409).json({ message: "User already exists" });
         }
 
         const result = await usersCollection.insertOne({
@@ -101,28 +100,41 @@ async function run() {
           email,
           photoURL: photoURL || "",
           role: "general user",
-          createdAt: createdAt ? new Date(createdAt) : new Date(),
+          createdAt: new Date(),
         });
 
-        res.status(201).json({
-          message: "User created successfully.",
-          insertedId: result.insertedId,
-        });
-      } catch (error) {
-        console.error("Error creating user:", error);
-        res.status(500).json({ message: "Internal server error." });
+        res.send({ success: true, insertedId: result.insertedId });
+      } catch (err) {
+        res.status(500).send({ message: "Server error" });
       }
     });
-    console.log("Successfully connected to MongoDB!");
+
+    app.post("/jwt", (req, res) => {
+      const user = req.body;
+
+      const token = jwt.sign(user, process.env.JWT_SECRET, {
+        expiresIn: "100d",
+      });
+
+      res.send({ token });
+    });
+    app.get("/users/check", async (req, res) => {
+      const { email } = req.query;
+      const existing = await usersCollection.findOne({ email });
+      if (existing)
+        return res.status(409).json({ message: "Email already exists" });
+      res.status(200).json({ available: true });
+    });
+
+    console.log("MongoDB connected");
   } finally {
-    // await client.close();
   }
 }
 
 run().catch(console.dir);
 
 app.get("/", (req, res) => {
-  res.send("Hello World!");
+  res.send("Server running...");
 });
 
 app.listen(port, () => {
