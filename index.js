@@ -184,7 +184,6 @@ async function run() {
           totalSubmissions,
         });
       } catch (err) {
-        
         res.status(500).json({ message: err.message });
       }
     });
@@ -223,7 +222,6 @@ async function run() {
           winners,
         });
       } catch (err) {
-        
         res.status(500).json({ message: err.message });
       }
     });
@@ -246,11 +244,23 @@ async function run() {
           participated > 0 ? Math.round((wins / participated) * 100) : 0;
         res.send({ participated, wins, pending, winRate });
       } catch (err) {
-        
         res.status(500).json({ message: err.message });
       }
     });
-  
+    app.patch("/users/:id", verifyJWT, async (req, res) => {
+      try {
+        const { ObjectId } = require("mongodb");
+        const id = req.params.id;
+        const { role } = req.body;
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { role } },
+        );
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
     console.log("MongoDB connected");
   } finally {
   }
