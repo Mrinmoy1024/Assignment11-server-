@@ -273,6 +273,31 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
+
+    app.delete("/contest/:id", verifyJWT, async (req, res) => {
+      try {
+        const { ObjectId } = require("mongodb");
+        const result = await contestCollection.deleteOne({
+          _id: new ObjectId(req.params.id),
+        });
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    app.patch("/contest/:id", verifyJWT, async (req, res) => {
+      try {
+        const { ObjectId } = require("mongodb");
+        const result = await contestCollection.updateOne(
+          { _id: new ObjectId(req.params.id) },
+          { $set: req.body },
+        );
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
     console.log("MongoDB connected");
   } finally {
   }
