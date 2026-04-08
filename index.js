@@ -30,6 +30,7 @@ async function run() {
     const contestCollection = db.collection("contest");
     const usersCollection = db.collection("users");
     const leaderboardCollection = db.collection("leaderboard");
+
     app.get("/contest", async (req, res) => {
       const result = await contestCollection.find().toArray();
       res.send(result);
@@ -52,16 +53,50 @@ async function run() {
         res.status(500).json({ error: "Failed to fetch leaderboard" });
       }
     });
-      app.get("/recent-winners", async (req, res) => {
+    app.get("/recent-winners", async (req, res) => {
       try {
         const result = await leaderboardCollection
           .find()
           .sort({ rank: 1 })
-          .limit(5)          
-          .toArray();        
+          .limit(6)
+          .toArray();
         res.json(result);
       } catch (err) {
         res.status(500).json({ error: "Failed to fetch recent winners" });
+      }
+    });
+    app.post("/users", async (req, res) => {
+      const { name, email, photoURL, createdAt } = req.body;
+
+      if (!name || !email) {
+        return res
+          .status(400)
+          .json({ message: "Name and email are required." });
+      }
+
+      try {
+        const existing = await usersCollection.findOne({ email });
+
+        if (existing) {
+          return res
+            .status(409)
+            .json({ message: "An account with this email already exists." });
+        }
+
+        const result = await usersCollection.insertOne({
+          name,
+          email,
+          photoURL: photoURL || "",
+          createdAt: createdAt ? new Date(createdAt) : new Date(),
+        });
+
+        res.status(201).json({
+          message: "User created successfully.",
+          insertedId: result.insertedId,
+        });
+      } catch (error) {
+        console.error("Error creating user:", error);
+        res.status(500).json({ message: "Internal server error." });
       }
     });
     console.log("Successfully connected to MongoDB!");
