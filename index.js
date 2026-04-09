@@ -8,7 +8,6 @@ const jwt = require("jsonwebtoken");
 
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
-
 app.use(
   cors({
     origin: ["http://localhost:5173"],
@@ -276,7 +275,19 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
-
+    app.get("/contest/:id", async (req, res) => {
+      try {
+        const { ObjectId } = require("mongodb");
+        const result = await contestCollection.findOne({
+          _id: new ObjectId(req.params.id),
+        });
+        if (!result)
+          return res.status(404).json({ message: "Contest not found" });
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
     app.delete("/contest/:id", verifyJWT, async (req, res) => {
       try {
         const { ObjectId } = require("mongodb");
@@ -361,6 +372,8 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
+
+    
     //new line
 
     console.log("MongoDB connected");
