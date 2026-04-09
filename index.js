@@ -311,6 +311,15 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
+    app.post("/contest", verifyJWT, async (req, res) => {
+      try {
+        const contest = req.body;
+        const result = await contestCollection.insertOne(contest);
+        res.send({ success: true, insertedId: result.insertedId });
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
     console.log("MongoDB connected");
   } finally {
   }
