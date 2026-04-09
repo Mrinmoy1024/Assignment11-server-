@@ -50,6 +50,8 @@ async function run() {
     const usersCollection = db.collection("users");
     const leaderboardCollection = db.collection("leaderboard");
     const submissionsCollection = db.collection("submissions");
+    const creatorRequestsCollection = db.collection("creatorRequests");
+    //add new var here
     app.get("/users/check", async (req, res) => {
       try {
         const { email } = req.query;
@@ -398,6 +400,18 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
+    app.get("/creator-requests", verifyJWT, async (req, res) => {
+      try {
+        const result = await creatorRequestsCollection
+          .find()
+          .sort({ requestedAt: -1 })
+          .toArray();
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
     //new line
 
     console.log("MongoDB connected");
