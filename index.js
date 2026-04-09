@@ -298,6 +298,19 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
+    app.patch("/users/update/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+        const { name, photoURL } = req.body;
+        const result = await usersCollection.updateOne(
+          { email },
+          { $set: { name, photoURL } },
+        );
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
     console.log("MongoDB connected");
   } finally {
   }
