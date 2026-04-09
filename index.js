@@ -1,9 +1,13 @@
+require("dotenv").config();
 const express = require("express");
 const app = express();
 const port = 3000;
 const cors = require("cors");
-require("dotenv").config();
+
 const jwt = require("jsonwebtoken");
+
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
 
 app.use(
   cors({
@@ -192,25 +196,25 @@ async function run() {
       try {
         const email = req.query.email;
         const myContests = await contestCollection.countDocuments({
-          creatorEmail: email,
+          createdBy: email,
         });
         const approvedContests = await contestCollection.countDocuments({
-          creatorEmail: email,
+          createdBy: email,
           status: "approved",
         });
         const pendingContests = await contestCollection.countDocuments({
-          creatorEmail: email,
+          createdBy: email,
           status: "pending",
         });
         const activeContests = await contestCollection.countDocuments({
-          creatorEmail: email,
+          createdBy: email,
           status: "active",
         });
         const totalSubmissions = await submissionsCollection.countDocuments({
-          creatorEmail: email,
+          createdBy: email,
         });
         const winners = await submissionsCollection.countDocuments({
-          creatorEmail: email,
+          createdBy: email,
           winner: true,
         });
         res.send({
@@ -225,7 +229,6 @@ async function run() {
         res.status(500).json({ message: err.message });
       }
     });
-
     app.get("/user/stats", verifyJWT, async (req, res) => {
       try {
         const email = req.query.email;
@@ -320,6 +323,46 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
+
+    app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+      try {
+        const { price } = req.body;
+        const amount = Math.round(price * 100); // convert to cents
+
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount,
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+
+        res.send({ clientSecret: paymentIntent.client_secret });
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    app.post("/submissions", verifyJWT, async (req, res) => {
+      try {
+        const submission = req.body;
+        const existing = await submissionsCollection.findOne({
+          contestId: submission.contestId,
+          userEmail: submission.userEmail,
+        });
+        if (existing) {
+          return res.status(409).json({ message: "Already submitted" });
+        }
+        const result = await submissionsCollection.insertOne({
+          ...submission,
+          winner: false,
+          submittedAt: new Date(),
+        });
+        res.send({ success: true, insertedId: result.insertedId });
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+    //new line
+
     console.log("MongoDB connected");
   } finally {
   }
