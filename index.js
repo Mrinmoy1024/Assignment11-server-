@@ -351,7 +351,17 @@ async function run() {
         res.status(500).json({ message: err.message });
       }
     });
-
+    app.get("/submissions/user", verifyJWT, async (req, res) => {
+      try {
+        const email = req.query.email;
+        const result = await submissionsCollection
+          .find({ userEmail: email })
+          .toArray();
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
     app.post("/submissions", verifyJWT, async (req, res) => {
       try {
         const submission = req.body;
@@ -372,8 +382,22 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
-
-    
+    app.post("/creator-request", verifyJWT, async (req, res) => {
+      try {
+        const request = req.body;
+        const existing = await creatorRequestsCollection.findOne({
+          userEmail: request.userEmail,
+          status: "pending",
+        });
+        if (existing) {
+          return res.status(409).json({ message: "Request already pending" });
+        }
+        const result = await creatorRequestsCollection.insertOne(request);
+        res.send({ success: true, insertedId: result.insertedId });
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
     //new line
 
     console.log("MongoDB connected");
