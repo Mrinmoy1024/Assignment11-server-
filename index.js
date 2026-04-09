@@ -412,6 +412,37 @@ async function run() {
       }
     });
 
+    app.patch("/creator-request/:id/approve", verifyJWT, async (req, res) => {
+      try {
+        const { ObjectId } = require("mongodb");
+        const id = req.params.id;
+
+        const request = await creatorRequestsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!request)
+          return res.status(404).json({ message: "Request not found" });
+        await creatorRequestsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status: "approved" } },
+        );
+        res.send({ success: true });
+      } catch (error) {
+        res.status(500).json({ message: "Server Error" });
+      }
+    });
+    app.patch("/creator-request/:id/reject", verifyJWT, async (req, res) => {
+      try {
+        const { ObjectId } = require("mongodb");
+        await creatorRequestsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status: "rejected" } },
+        );
+        res.send({ success: true });
+      } catch (error) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
     //new line
 
     console.log("MongoDB connected");
