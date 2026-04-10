@@ -3,9 +3,7 @@ const express = require("express");
 const app = express();
 const port = 3000;
 const cors = require("cors");
-
 const jwt = require("jsonwebtoken");
-
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 app.use(
@@ -16,7 +14,7 @@ app.use(
 );
 app.use(express.json());
 
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri, {
   serverApi: {
@@ -27,18 +25,18 @@ const client = new MongoClient(uri, {
 });
 
 const verifyJWT = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).send({ message: "Unauthorized access" });
-  }
-  const token = authHeader.split(" ")[1];
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(401).send({ message: "Invalid token" });
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ message: "No token provided" });
     }
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
     next();
-  });
+  } catch (err) {
+    return res.status(403).json({ message: "Invalid token" });
+  }
 };
 
 async function run() {
@@ -51,8 +49,8 @@ async function run() {
     const leaderboardCollection = db.collection("leaderboard");
     const submissionsCollection = db.collection("submissions");
     const creatorRequestsCollection = db.collection("creatorRequests");
+    const reviewsCollection = db.collection("reviews");
 
-    //add new var here
     app.get("/users/check", async (req, res) => {
       try {
         const { email } = req.query;
@@ -61,7 +59,6 @@ async function run() {
           return res.status(409).json({ message: "Email already exists" });
         res.status(200).json({ available: true });
       } catch (err) {
-        console.error("GET /users/check error:", err);
         res.status(500).json({ message: "Server error" });
       }
     });
@@ -73,7 +70,6 @@ async function run() {
         if (!result) return res.status(404).json({ message: "User not found" });
         res.send({ role: result.role });
       } catch (err) {
-        console.error("GET /users/role/:email error:", err);
         res.status(500).json({ message: "Server error" });
       }
     });
@@ -108,8 +104,47 @@ async function run() {
         });
         res.send({ success: true, insertedId: result.insertedId });
       } catch (err) {
-        console.error("POST /users error:", err);
         res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    app.patch("/users/update/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+        const { name, photoURL } = req.body;
+        const result = await usersCollection.updateOne(
+          { email },
+          { $set: { name, photoURL } },
+        );
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    app.patch("/users/:id", verifyJWT, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { role } = req.body;
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { role } },
+        );
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    app.delete("/users/:id", verifyJWT, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await usersCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
       }
     });
 
@@ -117,26 +152,79 @@ async function run() {
       try {
         const { email } = req.body;
         if (!email) return res.status(400).json({ message: "Email required" });
-
         const user = await usersCollection.findOne({ email });
         if (!user) return res.status(404).json({ message: "User not found" });
-
         const token = jwt.sign(
           { email: user.email, role: user.role },
           process.env.JWT_SECRET,
           { expiresIn: "100d" },
         );
-
         res.json({ token });
       } catch (err) {
-        console.error("POST /jwt error:", err);
         res.status(500).json({ message: "Token generation failed" });
+      }
+    });
+
+    app.get("/contest/all", verifyJWT, async (req, res) => {
+      try {
+        const result = await contestCollection.find().toArray();
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
       }
     });
 
     app.get("/contest", async (req, res) => {
       try {
-        const result = await contestCollection.find().toArray();
+        const result = await contestCollection
+          .find({ status: "allowed" })
+          .toArray();
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    app.post("/contest", verifyJWT, async (req, res) => {
+      try {
+        const contest = req.body;
+        const result = await contestCollection.insertOne(contest);
+        res.send({ success: true, insertedId: result.insertedId });
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    app.get("/contest/:id", async (req, res) => {
+      try {
+        const result = await contestCollection.findOne({
+          _id: new ObjectId(req.params.id),
+        });
+        if (!result)
+          return res.status(404).json({ message: "Contest not found" });
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    app.patch("/contest/:id", verifyJWT, async (req, res) => {
+      try {
+        const result = await contestCollection.updateOne(
+          { _id: new ObjectId(req.params.id) },
+          { $set: req.body },
+        );
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    app.delete("/contest/:id", verifyJWT, async (req, res) => {
+      try {
+        const result = await contestCollection.deleteOne({
+          _id: new ObjectId(req.params.id),
+        });
         res.send(result);
       } catch (err) {
         res.status(500).json({ message: "Server error" });
@@ -167,12 +255,15 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
+
     app.get("/admin/stats", verifyJWT, async (req, res) => {
       try {
         const totalUsers = await usersCollection.countDocuments();
-        const totalContests = await contestCollection.countDocuments();
+        const totalContests = await contestCollection.countDocuments({
+          status: "allowed",
+        });
         const approvedContests = await contestCollection.countDocuments({
-          status: "approved",
+          status: "allowed",
         });
         const pendingContests = await contestCollection.countDocuments({
           status: "pending",
@@ -201,15 +292,31 @@ async function run() {
         res.status(500).json({ message: err.message });
       }
     });
+
     app.get("/creator/stats", verifyJWT, async (req, res) => {
       try {
         const email = req.query.email;
-        const myContests = await contestCollection.countDocuments({
-          createdBy: email,
-        });
+        const myContests = await contestCollection
+          .find({ createdBy: email })
+          .toArray();
+        const contestIds = myContests.map((c) => c._id.toString());
+
+        let totalSubmissions = 0;
+        let winners = 0;
+
+        if (contestIds.length > 0) {
+          totalSubmissions = await submissionsCollection.countDocuments({
+            contestId: { $in: contestIds },
+          });
+          winners = await submissionsCollection.countDocuments({
+            contestId: { $in: contestIds },
+            winner: true,
+          });
+        }
+
         const approvedContests = await contestCollection.countDocuments({
           createdBy: email,
-          status: "approved",
+          status: "allowed",
         });
         const pendingContests = await contestCollection.countDocuments({
           createdBy: email,
@@ -219,15 +326,9 @@ async function run() {
           createdBy: email,
           status: "active",
         });
-        const totalSubmissions = await submissionsCollection.countDocuments({
-          createdBy: email,
-        });
-        const winners = await submissionsCollection.countDocuments({
-          createdBy: email,
-          winner: true,
-        });
+
         res.send({
-          myContests,
+          myContests: myContests.length,
           approvedContests,
           pendingContests,
           activeContests,
@@ -238,6 +339,7 @@ async function run() {
         res.status(500).json({ message: err.message });
       }
     });
+
     app.get("/user/stats", verifyJWT, async (req, res) => {
       try {
         const email = req.query.email;
@@ -259,87 +361,191 @@ async function run() {
         res.status(500).json({ message: err.message });
       }
     });
-    app.patch("/users/:id", verifyJWT, async (req, res) => {
+
+    app.get("/submissions/check", verifyJWT, async (req, res) => {
       try {
-        const { ObjectId } = require("mongodb");
-        const id = req.params.id;
-        const { role } = req.body;
-        const result = await usersCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { role } },
+        const { contestId, userEmail } = req.query;
+        const existing = await submissionsCollection.findOne({
+          contestId,
+          userEmail,
+        });
+        res.send({ joined: !!existing });
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    app.get("/submissions/user", verifyJWT, async (req, res) => {
+      try {
+        const email = req.query.email;
+        const submissions = await submissionsCollection
+          .find({ userEmail: email })
+          .toArray();
+
+        const enriched = await Promise.all(
+          submissions.map(async (sub) => {
+            try {
+              const contest = await contestCollection.findOne({
+                _id: new ObjectId(sub.contestId),
+              });
+              return {
+                ...sub,
+                name: contest?.name ?? "—",
+                image: contest?.image ?? "",
+                prizeMoney: contest?.prizeMoney ?? "—",
+                contestType: contest?.contestType ?? "—",
+                contestStatus: contest?.status ?? "—",
+              };
+            } catch {
+              return {
+                ...sub,
+                name: "—",
+                image: "",
+                prizeMoney: "—",
+                contestType: "—",
+                contestStatus: "—",
+              };
+            }
+          }),
         );
-        res.send(result);
+
+        res.send(enriched);
       } catch (err) {
         res.status(500).json({ message: "Server error" });
       }
     });
-    app.delete("/users/:id", verifyJWT, async (req, res) => {
+
+    app.get("/submissions/contest", verifyJWT, async (req, res) => {
       try {
-        const { ObjectId } = require("mongodb");
-        const id = req.params.id;
-        const result = await usersCollection.deleteOne({
-          _id: new ObjectId(id),
-        });
-        res.send(result);
-      } catch (err) {
-        res.status(500).json({ message: "Server error" });
-      }
-    });
-    app.get("/contest/:id", async (req, res) => {
-      try {
-        const { ObjectId } = require("mongodb");
-        const result = await contestCollection.findOne({
-          _id: new ObjectId(req.params.id),
-        });
-        if (!result)
-          return res.status(404).json({ message: "Contest not found" });
-        res.send(result);
-      } catch (err) {
-        res.status(500).json({ message: "Server error" });
-      }
-    });
-    app.delete("/contest/:id", verifyJWT, async (req, res) => {
-      try {
-        const { ObjectId } = require("mongodb");
-        const result = await contestCollection.deleteOne({
-          _id: new ObjectId(req.params.id),
-        });
+        const { contestId } = req.query;
+        const result = await submissionsCollection
+          .find({ contestId })
+          .toArray();
         res.send(result);
       } catch (err) {
         res.status(500).json({ message: "Server error" });
       }
     });
 
-    app.patch("/contest/:id", verifyJWT, async (req, res) => {
+    app.get("/submissions", verifyJWT, async (req, res) => {
       try {
-        const { ObjectId } = require("mongodb");
-        const result = await contestCollection.updateOne(
-          { _id: new ObjectId(req.params.id) },
-          { $set: req.body },
-        );
+        const email = req.query.email;
+        const role = req.query.role;
+
+        let query = {};
+
+        if (role === "creator") {
+          const myContests = await contestCollection
+            .find({ createdBy: email })
+            .toArray();
+          const contestIds = myContests.map((c) => c._id.toString());
+          query = { contestId: { $in: contestIds } };
+        } else {
+          query = { userEmail: email };
+        }
+
+        const result = await submissionsCollection.find(query).toArray();
         res.send(result);
       } catch (err) {
-        res.status(500).json({ message: "Server error" });
+        res.status(500).json({ message: err.message });
       }
     });
-    app.patch("/users/update/:email", verifyJWT, async (req, res) => {
+
+    app.post("/submissions", verifyJWT, async (req, res) => {
       try {
-        const email = req.params.email;
-        const { name, photoURL } = req.body;
-        const result = await usersCollection.updateOne(
-          { email },
-          { $set: { name, photoURL } },
-        );
-        res.send(result);
-      } catch (err) {
-        res.status(500).json({ message: "Server error" });
-      }
-    });
-    app.post("/contest", verifyJWT, async (req, res) => {
-      try {
-        const contest = req.body;
-        const result = await contestCollection.insertOne(contest);
+        const submission = req.body;
+
+        const existing = await submissionsCollection.findOne({
+          contestId: submission.contestId,
+          userEmail: submission.userEmail,
+        });
+
+        if (existing) {
+          return res
+            .status(409)
+            .json({ message: "Already joined this contest" });
+        }
+
+        const contest = await contestCollection.findOne({
+          _id: new ObjectId(submission.contestId),
+        });
+
+        if (!contest) {
+          return res.status(404).json({ message: "Contest not found" });
+        }
+
+        if (contest.status !== "allowed") {
+          return res.status(400).json({
+            message: `Contest not open (${contest.status})`,
+          });
+        }
+
+        const result = await submissionsCollection.insertOne({
+          ...submission,
+          winner: false,
+          submittedAt: new Date(),
+          createdBy: contest.createdBy,
+          contestName: contest.name,
+          contestStatus: contest.status,
+        });
+
         res.send({ success: true, insertedId: result.insertedId });
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    app.patch("/submissions/:id/winner", verifyJWT, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { contestId } = req.body;
+
+  
+        await submissionsCollection.updateMany(
+          { contestId },
+          { $set: { winner: false } },
+        );
+
+
+        const result = await submissionsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { winner: true } },
+        );
+
+        const winningSubmission = await submissionsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+
+        const contest = await contestCollection.findOne({
+          _id: new ObjectId(contestId),
+        });
+
+        const winnerUser = await usersCollection.findOne({
+          email: winningSubmission.userEmail,
+        });
+
+        if (winningSubmission && contest && winnerUser) {
+          
+          await leaderboardCollection.updateOne(
+            { contestId },
+            {
+              $set: {
+                contestId,
+                contestName: contest.name,
+                contestType: contest.contestType,
+                prizeMoney: contest.prizeMoney,
+                winnerEmail: winningSubmission.userEmail,
+                winnerName: winnerUser.name,
+                winnerPhoto: winnerUser.photoURL || "",
+                wonAt: new Date(),
+              },
+            },
+            { upsert: true }, 
+          );
+        }
+
+        res.send(result);
       } catch (err) {
         res.status(500).json({ message: "Server error" });
       }
@@ -348,50 +554,58 @@ async function run() {
     app.post("/create-payment-intent", verifyJWT, async (req, res) => {
       try {
         const { price } = req.body;
+        if (!price || isNaN(price) || price <= 0) {
+          return res.status(400).json({ message: "Invalid price" });
+        }
         const amount = Math.round(price * 100);
-
         const paymentIntent = await stripe.paymentIntents.create({
           amount,
           currency: "usd",
           payment_method_types: ["card"],
         });
-
         res.send({ clientSecret: paymentIntent.client_secret });
       } catch (err) {
         res.status(500).json({ message: err.message });
       }
     });
-    app.get("/submissions/user", verifyJWT, async (req, res) => {
+
+    app.get("/creator-requests/rejected", verifyJWT, async (req, res) => {
       try {
-        const email = req.query.email;
-        const result = await submissionsCollection
-          .find({ userEmail: email })
+        const result = await creatorRequestsCollection
+          .find({ status: "rejected" })
+          .sort({ requestedAt: -1 })
           .toArray();
         res.send(result);
       } catch (err) {
         res.status(500).json({ message: "Server error" });
       }
     });
-    app.post("/submissions", verifyJWT, async (req, res) => {
+
+    app.get("/creator-request/status", verifyJWT, async (req, res) => {
       try {
-        const submission = req.body;
-        const existing = await submissionsCollection.findOne({
-          contestId: submission.contestId,
-          userEmail: submission.userEmail,
-        });
-        if (existing) {
-          return res.status(409).json({ message: "Already submitted" });
-        }
-        const result = await submissionsCollection.insertOne({
-          ...submission,
-          winner: false,
-          submittedAt: new Date(),
-        });
-        res.send({ success: true, insertedId: result.insertedId });
+        const { email } = req.query;
+        const request = await creatorRequestsCollection.findOne(
+          { userEmail: email },
+          { sort: { requestedAt: -1 } },
+        );
+        res.send({ status: request?.status || null });
       } catch (err) {
         res.status(500).json({ message: "Server error" });
       }
     });
+
+    app.get("/creator-requests", verifyJWT, async (req, res) => {
+      try {
+        const result = await creatorRequestsCollection
+          .find()
+          .sort({ requestedAt: -1 })
+          .toArray();
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
     app.post("/creator-request", verifyJWT, async (req, res) => {
       try {
         const request = req.body;
@@ -408,21 +622,9 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
-    app.get("/creator-requests", verifyJWT, async (req, res) => {
-      try {
-        const result = await creatorRequestsCollection
-          .find()
-          .sort({ requestedAt: -1 })
-          .toArray();
-        res.send(result);
-      } catch (err) {
-        res.status(500).json({ message: "Server error" });
-      }
-    });
 
     app.patch("/creator-request/:id/approve", verifyJWT, async (req, res) => {
       try {
-        const { ObjectId } = require("mongodb");
         const id = req.params.id;
         const request = await creatorRequestsCollection.findOne({
           _id: new ObjectId(id),
@@ -446,7 +648,6 @@ async function run() {
 
     app.patch("/creator-request/:id/reject", verifyJWT, async (req, res) => {
       try {
-        const { ObjectId } = require("mongodb");
         const id = req.params.id;
         await creatorRequestsCollection.updateOne(
           { _id: new ObjectId(id) },
@@ -457,31 +658,53 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
-    app.get("/creator-requests/rejected", verifyJWT, async (req, res) => {
+
+    app.get("/reviews", async (req, res) => {
       try {
-        const result = await creatorRequestsCollection
-          .find({ status: "rejected" })
-          .sort({ requestedAt: -1 })
+        const result = await reviewsCollection
+          .find()
+          .sort({ createdAt: -1 })
           .toArray();
         res.send(result);
       } catch (err) {
         res.status(500).json({ message: "Server error" });
       }
     });
-    app.get("/creator-request/status", verifyJWT, async (req, res) => {
+
+    app.post("/reviews", verifyJWT, async (req, res) => {
       try {
-        const { email } = req.query;
-        const request = await creatorRequestsCollection.findOne(
-          { userEmail: email },
-          { sort: { requestedAt: -1 } },
-        );
-        res.send({ status: request?.status || null });
+        const { rating, review } = req.body;
+        if (!rating || !review) {
+          return res
+            .status(400)
+            .json({ message: "Rating and review are required" });
+        }
+
+        const existing = await reviewsCollection.findOne({
+          userEmail: req.user.email,
+        });
+        if (existing) {
+          return res
+            .status(409)
+            .json({ message: "You have already submitted a review" });
+        }
+
+        const user = await usersCollection.findOne({ email: req.user.email });
+
+        const result = await reviewsCollection.insertOne({
+          userName: user?.name ?? "Anonymous",
+          userPhoto: user?.photoURL ?? "",
+          userEmail: req.user.email,
+          rating: Number(rating),
+          review,
+          createdAt: new Date(),
+        });
+
+        res.send({ success: true, insertedId: result.insertedId });
       } catch (err) {
         res.status(500).json({ message: "Server error" });
       }
     });
-    //new line
-
     console.log("MongoDB connected");
   } finally {
   }
