@@ -51,6 +51,7 @@ async function run() {
     const leaderboardCollection = db.collection("leaderboard");
     const submissionsCollection = db.collection("submissions");
     const creatorRequestsCollection = db.collection("creatorRequests");
+
     //add new var here
     app.get("/users/check", async (req, res) => {
       try {
@@ -181,8 +182,10 @@ async function run() {
         });
         const totalSubmissions = await submissionsCollection.countDocuments();
         const creatorRequests = await creatorRequestsCollection.countDocuments({
-          
           status: "pending",
+        });
+        const rejectedUsers = await creatorRequestsCollection.countDocuments({
+          status: "rejected",
         });
         res.send({
           totalUsers,
@@ -192,12 +195,12 @@ async function run() {
           activeContests,
           totalSubmissions,
           creatorRequests,
+          rejectedUsers,
         });
       } catch (err) {
         res.status(500).json({ message: err.message });
       }
     });
-
     app.get("/creator/stats", verifyJWT, async (req, res) => {
       try {
         const email = req.query.email;
@@ -345,7 +348,7 @@ async function run() {
     app.post("/create-payment-intent", verifyJWT, async (req, res) => {
       try {
         const { price } = req.body;
-        const amount = Math.round(price * 100); // convert to cents
+        const amount = Math.round(price * 100);
 
         const paymentIntent = await stripe.paymentIntents.create({
           amount,
@@ -450,6 +453,29 @@ async function run() {
           { $set: { status: "rejected" } },
         );
         res.send({ success: true });
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+    app.get("/creator-requests/rejected", verifyJWT, async (req, res) => {
+      try {
+        const result = await creatorRequestsCollection
+          .find({ status: "rejected" })
+          .sort({ requestedAt: -1 })
+          .toArray();
+        res.send(result);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+    app.get("/creator-request/status", verifyJWT, async (req, res) => {
+      try {
+        const { email } = req.query;
+        const request = await creatorRequestsCollection.findOne(
+          { userEmail: email },
+          { sort: { requestedAt: -1 } },
+        );
+        res.send({ status: request?.status || null });
       } catch (err) {
         res.status(500).json({ message: "Server error" });
       }
