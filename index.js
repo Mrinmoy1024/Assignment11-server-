@@ -180,6 +180,10 @@ async function run() {
           status: "active",
         });
         const totalSubmissions = await submissionsCollection.countDocuments();
+        const creatorRequests = await creatorRequestsCollection.countDocuments({
+          
+          status: "pending",
+        });
         res.send({
           totalUsers,
           totalContests,
@@ -187,6 +191,7 @@ async function run() {
           pendingContests,
           activeContests,
           totalSubmissions,
+          creatorRequests,
         });
       } catch (err) {
         res.status(500).json({ message: err.message });
@@ -416,30 +421,36 @@ async function run() {
       try {
         const { ObjectId } = require("mongodb");
         const id = req.params.id;
-
         const request = await creatorRequestsCollection.findOne({
           _id: new ObjectId(id),
         });
         if (!request)
           return res.status(404).json({ message: "Request not found" });
+
         await creatorRequestsCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: { status: "approved" } },
         );
+        await usersCollection.updateOne(
+          { email: request.userEmail },
+          { $set: { role: "creator" } },
+        );
         res.send({ success: true });
-      } catch (error) {
-        res.status(500).json({ message: "Server Error" });
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
       }
     });
+
     app.patch("/creator-request/:id/reject", verifyJWT, async (req, res) => {
       try {
         const { ObjectId } = require("mongodb");
+        const id = req.params.id;
         await creatorRequestsCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: { status: "rejected" } },
         );
         res.send({ success: true });
-      } catch (error) {
+      } catch (err) {
         res.status(500).json({ message: "Server error" });
       }
     });
