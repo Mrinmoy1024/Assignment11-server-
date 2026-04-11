@@ -194,7 +194,36 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
+    app.get("/contest/search", async (req, res) => {
+      try {
+        const { name, type, status } = req.query;
+        const query = { status: "allowed" };
 
+        if (name) {
+          query.name = { $regex: name, $options: "i" };
+        }
+
+        if (type) {
+          query.contestType = type;
+        }
+
+        const now = new Date();
+        if (status === "active") {
+          query.deadline = { $gt: now.toISOString() };
+        } else if (status === "ended") {
+          query.deadline = { $lte: now.toISOString() };
+        }
+
+        const contests = await contestCollection
+          .find(query)
+          .sort({ deadline: 1 })
+          .toArray();
+
+        res.send({ contests, total: contests.length });
+      } catch (err) {
+        res.status(500).json({ message: "Server error", error: err.message });
+      }
+    });
     app.get("/contest/:id", async (req, res) => {
       try {
         const result = await contestCollection.findOne({
@@ -500,12 +529,10 @@ async function run() {
         const id = req.params.id;
         const { contestId } = req.body;
 
-  
         await submissionsCollection.updateMany(
           { contestId },
           { $set: { winner: false } },
         );
-
 
         const result = await submissionsCollection.updateOne(
           { _id: new ObjectId(id) },
@@ -516,7 +543,6 @@ async function run() {
           _id: new ObjectId(id),
         });
 
-
         const contest = await contestCollection.findOne({
           _id: new ObjectId(contestId),
         });
@@ -526,7 +552,6 @@ async function run() {
         });
 
         if (winningSubmission && contest && winnerUser) {
-          
           await leaderboardCollection.updateOne(
             { contestId },
             {
@@ -541,7 +566,7 @@ async function run() {
                 wonAt: new Date(),
               },
             },
-            { upsert: true }, 
+            { upsert: true },
           );
         }
 
@@ -705,6 +730,7 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
+
     console.log("MongoDB connected");
   } finally {
   }
